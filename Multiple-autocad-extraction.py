@@ -1,59 +1,64 @@
 import os
 import pandas as pd
 import ezdxf
+from typing import Dict, Any
 
-# 1. IMPOSTAZIONE CARTELLA
-# Usa r"" prima della stringa per evitare errori con le barre rovesciate di Windows
-cartella = r"C:\GitHub\Multiple-file-Autocad-data-extraction\prof"
+def extract_dxf_attributes(folder_path: str) -> pd.DataFrame:
+    """
+    Scans a folder for DXF files and extracts block attributes.
+    Specifically looks for blocks (INSERT entities) containing the 'NUMEROARTICOLO' attribute.
+    """
+    extracted_data = {}
 
-# Dizionario contenitore per i dati
-user_defined_dictionary = {}
+    if not os.path.exists(folder_path):
+        print(f"Error: Folder '{folder_path}' not found.")
+        return pd.DataFrame()
 
-# 2. DEFINIZIONE DELLA FUNZIONE DI ESTRAZIONE
-def extract_attr_dxf(percorso_cartella, nome_file):
-    try:
-        full_path = os.path.join(percorso_cartella, nome_file)
-        doc = ezdxf.readfile(full_path)
-        modelspace = doc.modelspace()
-        
-        for n in modelspace:
-            # Cerca solo gli oggetti di tipo INSERT (i blocchi)
-            if n.dxftype() == "INSERT":
-                # Controlla se il blocco ha l'attributo chiave "NUMEROARTICOLO"
-                if n.has_attrib("NUMEROARTICOLO"):
-                    articolo = {}
-                    # Estrae tutti gli attributi del blocco
-                    for attrib in n.attribs:
-                        articolo[attrib.dxf.tag] = attrib.dxf.text
-                    
-                    # Aggiunge al dizionario generale usando il numero articolo come chiave
-                    # NOTA: Se due file hanno lo stesso numero articolo, l'ultimo sovrascrive il primo
-                    chiave = articolo["NUMEROARTICOLO"]
-                    user_defined_dictionary[chiave] = articolo
-                    print(f"Estratto articolo: {chiave} da {nome_file}")
-                    
-    except Exception as e:
-        print(f"Errore nella lettura del file {nome_file}: {e}")
+    print(f"Starting extraction from: {folder_path}")
 
-# 3. ESECUZIONE DEL CICLO
-print("Inizio estrazione...")
+    for filename in os.listdir(folder_path):
+        if filename.lower().endswith(".dxf"):
+            try:
+                file_path = os.path.join(folder_path, filename)
+                doc = ezdxf.readfile(file_path)
+                modelspace = doc.modelspace()
 
-# Scansiona la cartella
-for nomefile in os.listdir(cartella):
-    if nomefile.lower().endswith(".dxf"):
-        extract_attr_dxf(cartella, nomefile)
+                for entity in modelspace:
+                    # Look for INSERT entities (blocks)
+                    if entity.dxftype() == "INSERT":
+                        # Check if the block has the key attribute 'NUMEROARTICOLO'
+                        if entity.has_attrib("NUMEROARTICOLO"):
+                            attributes = {}
+                            # Extract all attributes of the block
+                            for attrib in entity.attribs:
+                                attributes[attrib.dxf.tag] = attrib.dxf.text
 
-# 4. SALVATAGGIO SU CSV (La parte che mancava)
-print("Creazione del file CSV in corso...")
+                            # Use 'NUMEROARTICOLO' as the unique key
+                            item_id = attributes["NUMEROARTICOLO"]
+                            extracted_data[item_id] = attributes
+                            print(f"  Extracted item: {item_id} from {filename}")
 
-# Trasforma il dizionario in un DataFrame di Pandas
-# orient='index' significa che le chiavi del dizionario diventano le righe
-df = pd.DataFrame.from_dict(user_defined_dictionary, orient='index')
+            except Exception as e:
+                print(f"  Error reading file {filename}: {e}")
 
-# Salva il file nella stessa cartella dei dxf
-percorso_output = os.path.join(cartella, "risultato_estrazione.csv")
+    if not extracted_data:
+        print("No data extracted.")
+        return pd.DataFrame()
 
-# Esporta in CSV (sep=';' è meglio per Excel in italiano, o usa ',' per standard inglese)
-df.to_csv(percorso_output, sep=';', index=False)
+    # Create a Pandas DataFrame from the dictionary
+    df = pd.DataFrame.from_dict(extracted_data, orient='index')
+    return df
 
-print(f"Fatto! Il file è stato salvato qui: {percorso_output}")
+if __name__ == "__main__":
+    # Example usage:
+    # Use the 'prof' folder in the current directory
+    target_folder = "prof"
+    output_csv = os.path.join(target_folder, "extraction_results.csv")
+
+    results_df = extract_dxf_attributes(target_folder)
+
+    if not results_df.empty:
+        results_df.to_csv(output_csv, sep=';', index=False)
+        print(f"\nSuccess! Results saved to: {output_csv}")
+    else:
+        print("\nExtraction failed or no relevant data found.")
